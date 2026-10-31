@@ -1,0 +1,21 @@
+[project]
+name = "ratatouille-os"
+version = "0.1.0"
+description = "鼠於我的小餐館 — CORE world simulation and OS algorithm service"
+requires-python = ">=3.14.10,<3.15"
+dependencies = [
+  "fastapi==0.162.0",
+  "uvicorn==0.54.0",
+  "pydantic==2.14.2",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==9.2.0",
+  "httpx==0.28.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["core/tests"]
+pythonpath = ["."]
+addopts = "-q"
