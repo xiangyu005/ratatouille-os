@@ -30,24 +30,62 @@ class CommandResponse(BaseModel):
 
 
 class SnapshotResponse(BaseModel):
+    request_id: str
     state: dict[str, Any]
     last_event_id: int
     state_version: int
+    events: list[dict[str, Any]] | None = None
 
 
 class EventListResponse(BaseModel):
+    request_id: str
     events: list[dict[str, Any]]
     last_event_id: int
 
 
 class TaskListResponse(BaseModel):
+    request_id: str
     tasks: list[dict[str, Any]]
     sim_time: int
     state_version: int
 
 
 class ResourceResponse(BaseModel):
+    request_id: str
     workers: list[dict[str, Any]]
     stations: list[dict[str, Any]]
     sim_time: int
     state_version: int
+
+
+class SaveRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=64)
+
+
+class SaveResponse(BaseModel):
+    request_id: str
+    save_id: int
+    schema_version: int
+    state_version: int
+    last_event_id: int
+    label: str | None = None
+    checksum: str
+    created_at: str
+
+
+class SaveListResponse(BaseModel):
+    request_id: str
+    saves: list[dict[str, Any]]
+
+
+class LoadRequest(BaseModel):
+    save_id: int | None = Field(default=None, ge=1)
+
+
+class LoadResponse(BaseModel):
+    request_id: str
+    loaded: bool
+    save_id: int
+    state_version: int
+    last_event_id: int
+    label: str | None = None

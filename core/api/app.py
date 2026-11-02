@@ -22,7 +22,12 @@ from core.api.schemas import (
     CommandRequest,
     CommandResponse,
     EventListResponse,
+    LoadRequest,
+    LoadResponse,
     ResourceResponse,
+    SaveListResponse,
+    SaveRequest,
+    SaveResponse,
     SnapshotResponse,
     TaskListResponse,
 )
@@ -66,6 +71,10 @@ def _db_path(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit)
     return Path(os.getenv("CORE_DB_PATH", "data/core/core.sqlite"))
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", None) or uuid.uuid4().hex
 
 
 def create_app(db_path: str | Path | None = None) -> FastAPI:
@@ -116,8 +125,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return response
 
     @app.get("/health")
-    def health() -> dict[str, Any]:
+    def health(request: Request) -> dict[str, Any]:
         return {
+            "request_id": _request_id(request),
             "status": "ok",
             "service": "core",
             "version": core.__version__,
@@ -126,8 +136,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
 
     @app.get("/api/v1/meta")
-    def meta() -> dict[str, Any]:
+    def meta(request: Request) -> dict[str, Any]:
         return {
+            "request_id": _request_id(request),
             "service": "core",
             "version": core.__version__,
             "schema_version": store.schema_version(),
@@ -137,22 +148,44 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
 
     @app.get("/api/v1/snapshot", response_model=SnapshotResponse)
-    def snapshot() -> dict[str, Any]:
-        return engine.snapshot()
+    def snapshot(
+        request: Request,
+        since_event_id: int | None = Query(default=None, ge=0),
+        event_limit: int = Query(default=500, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        body = engine.snapshot()
+        body["request_id"] = _request_id(request)
+        if since_event_id is not None:
+            body["events"] = store.get_events(
+                after_id=since_event_id, limit=event_limit
+            )
+        return body
 
     @app.get("/api/v1/events", response_model=EventListResponse)
     def events(
+        request: Request,
         after_id: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=1000),
+        type: str | None = Query(default=None, max_length=64),
+        from_sim_time: int | None = Query(default=None, ge=0),
+        to_sim_time: int | None = Query(default=None, ge=0),
     ) -> dict[str, Any]:
         return {
-            "events": store.get_events(after_id=after_id, limit=limit),
+            "request_id": _request_id(request),
+            "events": store.get_events(
+                after_id=after_id,
+                limit=limit,
+                event_type=type,
+                from_sim_time=from_sim_time,
+                to_sim_time=to_sim_time,
+            ),
             "last_event_id": engine.state.last_event_id,
         }
 
     @app.get("/api/v1/tasks", response_model=TaskListResponse)
-    def tasks() -> dict[str, Any]:
+    def tasks(request: Request) -> dict[str, Any]:
         return {
+            "request_id": _request_id(request),
             "tasks": [
                 task.to_dict()
                 for task in sorted(engine.state.tasks.values(), key=lambda t: t.id)
@@ -162,8 +195,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
 
     @app.get("/api/v1/resources", response_model=ResourceResponse)
-    def resources() -> dict[str, Any]:
+    def resources(request: Request) -> dict[str, Any]:
         return {
+            "request_id": _request_id(request),
             "workers": [
                 worker.to_dict()
                 for worker in sorted(engine.state.workers.values(), key=lambda w: w.id)
@@ -192,6 +226,48 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             for event in emitted:
                 await hub.publish(event.to_dict())
         return result.to_dict()
+
+    @app.post("/api/v1/save", response_model=SaveResponse, status_code=201)
+    def save(request: Request, body: SaveRequest | None = None) -> dict[str, Any]:
+        """Write a manual save point (docs/17 §5.5, docs/08-04)."""
+        metadata = store.create_save(engine.state, label=body.label if body else None)
+        return {"request_id": _request_id(request), **metadata}
+
+    @app.get("/api/v1/saves", response_model=SaveListResponse)
+    def saves(
+        request: Request, limit: int = Query(default=50, ge=1, le=500)
+    ) -> dict[str, Any]:
+        return {"request_id": _request_id(request), "saves": store.list_saves(limit)}
+
+    @app.post("/api/v1/load", response_model=LoadResponse)
+    async def load(request: Request, body: LoadRequest | None = None) -> dict[str, Any]:
+        """Restore the world from a save point; clients resync from SNAPSHOT."""
+        save_id = body.save_id if body else None
+        try:
+            restored = store.load_save(save_id)
+        except LookupError as exc:
+            raise DomainError("SAVE_NOT_FOUND", str(exc), status_code=404) from exc
+        except ValueError as exc:
+            raise DomainError("SAVE_CORRUPTED", str(exc), status_code=409) from exc
+
+        engine.restore(WorldState.from_dict(restored["state"]))
+        await hub.publish(
+            {
+                "type": "SNAPSHOT",
+                "reason": "save_loaded",
+                "state": engine.state.to_dict(),
+                "last_event_id": engine.state.last_event_id,
+                "state_version": engine.state.version,
+            }
+        )
+        return {
+            "request_id": _request_id(request),
+            "loaded": True,
+            "save_id": restored["save_id"],
+            "state_version": engine.state.version,
+            "last_event_id": engine.state.last_event_id,
+            "label": restored["label"],
+        }
 
     @app.exception_handler(DomainError)
     async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:

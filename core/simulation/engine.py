@@ -448,6 +448,14 @@ class WorldEngine:
                 events,
             )
 
+    def restore(self, state: WorldState) -> None:
+        """Replace the authoritative state with a restored save (`08-04`).
+
+        Restoring does not re-settle past events: the save already holds the
+        settled result, so nothing here may emit or replay domain events.
+        """
+        self.state = state
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "state": self.state.to_dict(),

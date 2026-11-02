@@ -23,7 +23,7 @@ def test_health_and_meta(tmp_path: Path) -> None:
     meta = client.get("/api/v1/meta")
     assert meta.status_code == 200
     body = meta.json()
-    assert body["schema_version"] == 1
+    assert body["schema_version"] == 2
     assert {"fcfs", "sjf", "priority_aging"} <= set(body["policies"])
     assert any(item["name"] == "srtf" and not item["assignable"] for item in body["algorithms"])
 
