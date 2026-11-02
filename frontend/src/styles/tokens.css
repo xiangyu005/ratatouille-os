@@ -1,0 +1,16 @@
+:root {
+  --bg: #0b0e11;
+  --panel: #11161c;
+  --panel-soft: #0e1318;
+  --border: #25303a;
+  --text: #c9d4df;
+  --text-dim: #7b8a99;
+  --accent: #4fd1c5;
+  --amber: #f0b429;
+  --red: #e5484d;
+  --green: #46a758;
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, monospace;
+  --font-size: 12.5px;
+  --radius: 2px;
+  --gap: 10px;
+}

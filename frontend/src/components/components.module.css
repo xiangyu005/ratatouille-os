@@ -1,0 +1,148 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.statusLabel {
+  color: var(--text);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  display: inline-block;
+}
+
+.ok {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(70, 167, 88, 0.7);
+}
+
+.warn {
+  background: var(--amber);
+}
+
+.error {
+  background: var(--red);
+}
+
+.offline {
+  background: #3a4652;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-soft);
+}
+
+.panelHeader h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.panelActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panelBody {
+  padding: 9px;
+  min-height: 0;
+}
+
+.panelBodyScroll {
+  padding: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 6px 9px;
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  color: #ffd7d7;
+  background: rgba(229, 72, 77, 0.12);
+}
+
+.log {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.logToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.logBody {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.logList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.logList li {
+  display: flex;
+  gap: 10px;
+  padding: 1px 9px;
+  border-bottom: 1px solid rgba(37, 48, 58, 0.45);
+}
+
+.logList li:hover {
+  background: rgba(79, 209, 197, 0.06);
+}
+
+.logType {
+  color: var(--accent);
+  min-width: 150px;
+}
+
+.dim {
+  color: var(--text-dim);
+}

@@ -1,4 +1,4 @@
-﻿"""MVP demo: run the real CORE pipeline and print a report-ready summary.
+"""MVP demo: run the real CORE pipeline and print a report-ready summary.
 
 The demo is deliberately doc-faithful:
 

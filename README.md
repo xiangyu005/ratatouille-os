@@ -2,7 +2,7 @@
 
 餐飲知識庫、餐廳／家庭經營模擬、OS 演算法、AI Agent、MCP Skills 與 RAG 的整合專案。
 
-目前進度：**M1 CORE walking skeleton + AI 依賴環境**。CORE 可在沒有 FE、AI 的情況下獨立啟動、接受 command、產生 event、推進模擬時間、存檔／讀檔並通過測試。AI 依賴已固定在 `ai/.venv` 並通過 smoke；AI 服務本體與 FE 尚未實作；**後端技術文件 `17`～`24` 已齊**，企劃文件 `15`、`16` 仍待補。
+目前進度：**M1 CORE walking skeleton + AI 依賴環境 + FE scaffold**。CORE 可在沒有 FE、AI 的情況下獨立啟動、接受 command、產生 event、推進模擬時間、存檔／讀檔並通過測試。FE 已有 shell、`/game` 與 9 頁 route（其餘頁面為佔位）。AI 依賴已固定在 `ai/.venv` 並通過 smoke；AI 服務本體尚未實作；**後端技術文件 `17`～`24` 已齊**，企劃文件 `15`、`16` 仍待補。
 
 ## 架構
 
@@ -29,6 +29,7 @@ AI          ──MCP──────▶  Skills / Tools / RAG
 | `core/api` | REST + WebSocket（snapshot + incremental events、save／load） |
 | `core/tests` | 演算法固定測資、command/event、determinism、API、存讀檔、demo、架構 invariant |
 | `demo/` | MVP 示範：跑真實 CORE 並輸出可擴充成報告的 markdown |
+| `frontend/` | React 19.3 + TS + Vite 8 shell、`/game`、9 頁 route、WS／command 整合 |
 | `ai/` | Python 3.14.10 依賴、`uv.lock`、MCP／FAISS／BM25S／Numba／PDF smoke；服務本體未實作 |
 
 M1 的 task 是通用工作單位，**不是**餐廳訂單模型；訂單、庫存、營養、顧客與經濟規則待 `09～12` 定案後接入。
@@ -42,7 +43,18 @@ uv sync --locked
 uv run python scripts\run_core.py
 ```
 
-FE 尚未建立；建立時使用 Node **24 LTS**（見 `.node-version`）與 npm。
+預設位址：`http://127.0.0.1:8001`。資料庫預設 `data/core/core.sqlite`（不進 git）。
+
+前端（Node **24**，見 `.node-version`）：
+
+```powershell
+cd frontend
+npm install --legacy-peer-deps
+npm run dev        # http://127.0.0.1:5173
+```
+
+CORE 要先起著，FE 直接連 `127.0.0.1:8001`（CORS 已預設放行 5173）。細節見
+[frontend/README.md](frontend/README.md)、選型見 [22-01](docs/22-01_前端技術選型.md)。
 
 AI 依賴環境（與 CORE 分開）：
 
@@ -51,8 +63,6 @@ cd ai
 uv sync --locked
 uv run python smoke.py
 ```
-
-預設位址：`http://127.0.0.1:8001`。資料庫預設 `data/core/core.sqlite`（不進 git）。
 
 ## MVP 示範（不需要 FE／AI）
 
@@ -151,15 +161,28 @@ uv run python lmstudio_smoke.py
 
 2026-10-31 實測：Gemma 4 E2B 繁體中文回答、EmbeddingGemma 2 768 dims、chat／embedding 交錯呼叫，結果 `LM STUDIO SMOKE OK`。
 
+前端檢查：
+
+```powershell
+cd frontend
+npm run lint       # Biome
+npm run typecheck  # tsc strict
+npm run test       # Vitest + RTL（6 個測試）
+npm run build      # 115.6 KB gzip（目標 < 300 KB）
+```
+
+涵蓋 UI store（事件去重、500 筆上限、resync 不回退）、`LogStream` 篩選，以及整個 shell + `/game` 的 jsdom smoke test（stub CORE 的 snapshot／tasks／resources／meta）。
+
 ## 設計限制（已知）
 
 1. **企劃數值未定。** 顧客生成、訂單拆解、工作時間、營養門檻、衛生與評論公式仍待 `09～12`；M1 不寫死這些值。
 2. **12 個演算法尚未完成。** 目前 5 個排程 reference；同步、死結、快取、磁碟、ACL 待 `21` 與 M2。
 3. **Numba 尚未接入 CORE。** AI venv 已安裝 0.68.1 並通過 `njit(cache=True)` smoke；CORE 尚未有 optimized kernel，等 profiler 找到 hotspot 再加。
 4. **AI 服務本體尚未實作。** `ai/` 有依賴、`rag.sqlite` schema／測試與 smoke；Agent／RAG／MCP server 尚未建立。
-5. **FE 尚未實作。** 9 頁與 `/game` 尚未建立。
+5. **FE 只有 scaffold。** shell、`/game`（世界狀態、任務、command、事件流）可用；其餘 8 頁是佔位，9 頁的真實操作／圖表與 Playwright 尚未做。
 6. **企劃文件 `15`、`16` 仍是空白。** 後端技術文件 `17`～`24` 已建立並與實作對齊。
 7. **測試 warning。** FastAPI TestClient 對 `httpx` 發出 deprecation warning；不影響目前測試。
+8. **FE 的 TS 版本偏離選型。** 用 TS 6.0.3 而非 7.0.2（TS 7 與 `openapi-typescript` 不相容），原因與影響見 `22-01` §2 註。
 
 ## 文件
 
