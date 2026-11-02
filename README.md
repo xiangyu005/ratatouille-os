@@ -2,7 +2,7 @@
 
 餐飲知識庫、餐廳／家庭經營模擬、OS 演算法、AI Agent、MCP Skills 與 RAG 的整合專案。
 
-目前進度：**M1 CORE walking skeleton + AI 依賴環境**。CORE 可在沒有 FE、AI 的情況下獨立啟動、接受 command、產生 event、推進模擬時間並通過測試。AI 依賴已固定在 `ai/.venv` 並通過 smoke；AI 服務本體與 FE 尚未實作；企劃文件 `15～24` 仍有多數待補。
+目前進度：**M1 CORE walking skeleton + AI 依賴環境**。CORE 可在沒有 FE、AI 的情況下獨立啟動、接受 command、產生 event、推進模擬時間、存檔／讀檔並通過測試。AI 依賴已固定在 `ai/.venv` 並通過 smoke；AI 服務本體與 FE 尚未實作；**後端技術文件 `17`～`24` 已齊**，企劃文件 `15`、`16` 仍待補。
 
 ## 架構
 
@@ -25,9 +25,9 @@ AI          ──MCP──────▶  Skills / Tools / RAG
 | `core/domain` | Task／Worker／Station／WorldState、Command、DomainEvent |
 | `core/simulation` | 單一寫入者 command pipeline、時間推進、任務完成 |
 | `core/algorithms` | FCFS、SJF、SRTF、Priority+Aging、Round Robin 的 reference 實作 |
-| `core/persistence` | SQLite WAL、event log、snapshot、idempotency |
-| `core/api` | REST + WebSocket（snapshot + incremental events） |
-| `core/tests` | 演算法固定測資、command/event、determinism、API、架構 invariant |
+| `core/persistence` | SQLite WAL、event log、snapshot、idempotency、存檔（checksum） |
+| `core/api` | REST + WebSocket（snapshot + incremental events、save／load） |
+| `core/tests` | 演算法固定測資、command/event、determinism、API、存讀檔、架構 invariant |
 | `ai/` | Python 3.14.10 依賴、`uv.lock`、MCP／FAISS／BM25S／Numba／PDF smoke；服務本體未實作 |
 
 M1 的 task 是通用工作單位，**不是**餐廳訂單模型；訂單、庫存、營養、顧客與經濟規則待 `09～12` 定案後接入。
@@ -90,13 +90,15 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/api/v1/commands `
 uv run pytest
 ```
 
-目前 25 個 CORE 測試，涵蓋：
+目前 33 個 CORE 測試，涵蓋：
 
 - 5 個排程演算法的固定 workload 與 metrics。
 - command 驗證、idempotency、拒絕時不寫入。
 - 同 seed／同 command 的事件序列一致。
 - snapshot 重載。
 - REST 契約與 WebSocket snapshot + event。
+- 存檔／讀檔、checksum 損毀偵測、讀檔後 WS 重同步。
+- `snapshot?since_event_id=` 增量與事件篩選。
 - CORE 不 import AI／FE、domain 不依賴框架、sqlite3 只在 persistence。
 
 AI 依賴發煙：
@@ -133,7 +135,7 @@ uv run python lmstudio_smoke.py
 3. **Numba 尚未接入 CORE。** AI venv 已安裝 0.68.1 並通過 `njit(cache=True)` smoke；CORE 尚未有 optimized kernel，等 profiler 找到 hotspot 再加。
 4. **AI 服務本體尚未實作。** `ai/` 有依賴、`rag.sqlite` schema／測試與 smoke；Agent／RAG／MCP server 尚未建立。
 5. **FE 尚未實作。** 9 頁與 `/game` 尚未建立。
-6. **`docs/15～24` 多數仍是空白。** `17`、`18`、`18-01`、`20` 已建立；`16`、`21`、`22` 是下一步。
+6. **企劃文件 `15`、`16` 仍是空白。** 後端技術文件 `17`～`24` 已建立並與實作對齊。
 7. **測試 warning。** FastAPI TestClient 對 `httpx` 發出 deprecation warning；不影響目前測試。
 
 ## 文件
@@ -144,13 +146,18 @@ uv run python lmstudio_smoke.py
 - [技術選型與可行性驗證](docs/18_技術選型與可行性驗證.md)
 - [AI 服務與 Agent 系統](docs/19_AI服務與Agent系統.md)
 - [Python 套件清單與來源審查](docs/18-01_Python套件清單與來源審查.md)
-- [前端技術選型](docs/22-01_前端技術選型.md)
 - [資料模型與資料庫設計](docs/20_資料模型與資料庫設計.md)
+- [OS 演算法與資源管理實作](docs/21_OS演算法與資源管理實作.md)
+- [介面與系統整合規格](docs/22_介面與系統整合規格.md)
+- [前端技術選型](docs/22-01_前端技術選型.md)
+- [部署與執行環境](docs/23_部署與執行環境.md)
+- [系統測試與品質驗證紀錄](docs/24_系統測試與品質驗證紀錄.md)
 - [2026-10-29 會議決議](docs/會議紀錄/2026-10-29_專案會議決議紀錄.md)
 
 ## 下一步
 
-1. `docs/22` API 契約、`docs/21` 12 演算法與 Skill 對照；`docs/20` 已完成分庫 schema。
-2. M2：餐廳訂單／工作／設備模型，接上 CORE。
+1. `scripts/generate_types.py`：OpenAPI → FE TypeScript types 的契約同步與 CI 檢查（`22` §6）。
+2. M2：餐廳訂單／工作／設備模型，接上 CORE；`11-04` 的預先權／實際執行權。
 3. FE scaffold：React 19.3／TS 7／Vite 8／npm，先做 AppShell、StatusBar、NavRail、LogStream，接 CORE snapshot／WS。
 4. AI service：LM Studio 已驗證 Gemma 4 E2B + EmbeddingGemma 2；下一步建 20 篇文件小索引，接 MCP Skills 與 local/cloud routing。
+5. `docs/15`、`docs/16`：專案管理與軟體需求規格。
