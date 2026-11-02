@@ -27,7 +27,8 @@ AI          ──MCP──────▶  Skills / Tools / RAG
 | `core/algorithms` | FCFS、SJF、SRTF、Priority+Aging、Round Robin 的 reference 實作 |
 | `core/persistence` | SQLite WAL、event log、snapshot、idempotency、存檔（checksum） |
 | `core/api` | REST + WebSocket（snapshot + incremental events、save／load） |
-| `core/tests` | 演算法固定測資、command/event、determinism、API、存讀檔、架構 invariant |
+| `core/tests` | 演算法固定測資、command/event、determinism、API、存讀檔、demo、架構 invariant |
+| `demo/` | MVP 示範：跑真實 CORE 並輸出可擴充成報告的 markdown |
 | `ai/` | Python 3.14.10 依賴、`uv.lock`、MCP／FAISS／BM25S／Numba／PDF smoke；服務本體未實作 |
 
 M1 的 task 是通用工作單位，**不是**餐廳訂單模型；訂單、庫存、營養、顧客與經濟規則待 `09～12` 定案後接入。
@@ -52,6 +53,27 @@ uv run python smoke.py
 ```
 
 預設位址：`http://127.0.0.1:8001`。資料庫預設 `data/core/core.sqlite`（不進 git）。
+
+## MVP 示範（不需要 FE／AI）
+
+```powershell
+uv run python scripts\run_demo.py
+uv run python scripts\run_demo.py --out demo\out\mvp-report.md
+```
+
+它會跑**真實的** CORE pipeline，輸出一份 markdown，含七個可延伸成報告的章節：
+
+| 章節 | 示範什麼 | 依據 |
+|---|---|---|
+| 1 世界與演員 | 2 個 worker、2 個 workstation | `17` §4 |
+| 2 五個排程策略 | 同一工作集下 FCFS／SJF／SRTF／Priority+Aging／RR 的指標與決策 trace | `21` §2、`03` |
+| 3 世界層走一遍 | 真的 command → event → 甘特圖，附冪等重送 | `21` §3、`22` §3.6 |
+| 4 存檔／讀檔 | checksum、讀檔不重播 | `08-04`、`22` §3.7 |
+| 5 決定性 | 兩個新 DB 重跑同一序列，逐筆比對事件 | `17` §5.4 |
+| 6 效能 | in-process 延遲對照 5 ms tick 預算 | `17` §11.4、`24` |
+| 7–8 邊界與報告骨架 | 已具備／未具備、報告章節對照表 | `21` §7、`23` §11 |
+
+工作秒數與優先權是**示範假設**（輸出會標示），不是遊戲規格；世界狀態、事件與量測數字則是實際執行結果。
 
 ### 健康檢查
 
@@ -90,7 +112,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/api/v1/commands `
 uv run pytest
 ```
 
-目前 33 個 CORE 測試，涵蓋：
+目前 37 個 CORE 測試，涵蓋：
 
 - 5 個排程演算法的固定 workload 與 metrics。
 - command 驗證、idempotency、拒絕時不寫入。
@@ -99,6 +121,7 @@ uv run pytest
 - REST 契約與 WebSocket snapshot + event。
 - 存檔／讀檔、checksum 損毀偵測、讀檔後 WS 重同步。
 - `snapshot?since_event_id=` 增量與事件篩選。
+- MVP demo 的章節完整性與決定性。
 - CORE 不 import AI／FE、domain 不依賴框架、sqlite3 只在 persistence。
 
 AI 依賴發煙：
