@@ -17,7 +17,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import core
-from core.algorithms.scheduling import ALGORITHM_INFO, ASSIGNABLE
+from core.algorithms import (
+    CACHING_ALGORITHM_INFO,
+    DEADLOCK_ALGORITHM_INFO,
+    MEMORY_ALGORITHM_INFO,
+    SCHEDULING_ALGORITHM_INFO as ALGORITHM_INFO,
+)
+from core.algorithms.scheduling import ASSIGNABLE
 from core.api.schemas import (
     CommandRequest,
     CommandResponse,
@@ -145,6 +151,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "algorithms": ALGORITHM_INFO,
             "policies": sorted(ASSIGNABLE),
             "default_policy": engine.state.policy,
+            "caching_algorithms": CACHING_ALGORITHM_INFO,
+            "memory_algorithms": MEMORY_ALGORITHM_INFO,
+            "deadlock_algorithms": DEADLOCK_ALGORITHM_INFO,
         }
 
     @app.get("/api/v1/snapshot", response_model=SnapshotResponse)

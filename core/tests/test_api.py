@@ -26,6 +26,9 @@ def test_health_and_meta(tmp_path: Path) -> None:
     assert body["schema_version"] == 2
     assert {"fcfs", "sjf", "priority_aging"} <= set(body["policies"])
     assert any(item["name"] == "srtf" and not item["assignable"] for item in body["algorithms"])
+    assert len(body["caching_algorithms"]) == 5
+    assert len(body["memory_algorithms"]) == 3
+    assert len(body["deadlock_algorithms"]) == 4
 
 
 def test_command_updates_snapshot_and_tasks(tmp_path: Path) -> None:
