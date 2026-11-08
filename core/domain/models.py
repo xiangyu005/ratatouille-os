@@ -11,10 +11,24 @@ from enum import StrEnum
 from typing import Any
 
 
+class TaskStage(StrEnum):
+    FETCH = "FETCH"   # 取放食材 (docs/11-01 §3.2)
+    COOK = "COOK"     # 烹飪 (docs/11-01 §3.3)
+    SERVE = "SERVE"   # 送餐 (docs/11-01 §3.4)
+
+
 class TaskStatus(StrEnum):
     QUEUED = "queued"
+    WAITING = "waiting"   # 等待前置階段完成 (docs/11-01 §4.3)
     RUNNING = "running"
     DONE = "done"
+
+
+class OrderStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class WorkerStatus(StrEnum):
@@ -40,10 +54,30 @@ class Task:
     finished_at: int | None = None
     worker_id: str | None = None
     station_id: str | None = None
+    order_id: str | None = None
+    stage: str | None = None
+    prerequisite_task_id: str | None = None
+    preferred_station_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         # StrEnum serializes as its value; normalize for older JSON encoders.
+        data["status"] = str(self.status)
+        return data
+
+
+@dataclass
+class Order:
+    id: str
+    dish_name: str
+    status: str = OrderStatus.PENDING
+    task_ids: list[str] = field(default_factory=list)
+    created_at: int = 0
+    completed_at: int | None = None
+    priority: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
         data["status"] = str(self.status)
         return data
 
@@ -83,18 +117,20 @@ class WorldState:
     seed: int = 42
     policy: str = "fcfs"
     next_task_seq: int = 1
+    next_order_seq: int = 1
     last_event_id: int = 0
     tasks: dict[str, Task] = field(default_factory=dict)
     workers: dict[str, Worker] = field(default_factory=dict)
     stations: dict[str, Station] = field(default_factory=dict)
+    orders: dict[str, Order] = field(default_factory=dict)
 
     @classmethod
     def new(cls, *, seed: int = 42) -> "WorldState":
-        """Create the minimal M1 world: two workers and two work stations.
+        """Create the minimal M1/M2 world: two workers and two work stations.
 
         Restaurant-specific entities (orders, inventory, nutrition) are added
-        in later milestones; this skeleton only needs enough state to exercise
-        commands, scheduling and deterministic time advance.
+        progressively; this skeleton exercises commands, scheduling, chained
+        tasks and deterministic time advance.
         """
         return cls(
             seed=seed,
@@ -115,12 +151,14 @@ class WorldState:
             "seed": self.seed,
             "policy": self.policy,
             "next_task_seq": self.next_task_seq,
+            "next_order_seq": self.next_order_seq,
             "last_event_id": self.last_event_id,
             "tasks": {key: task.to_dict() for key, task in self.tasks.items()},
             "workers": {key: worker.to_dict() for key, worker in self.workers.items()},
             "stations": {
                 key: station.to_dict() for key, station in self.stations.items()
             },
+            "orders": {key: order.to_dict() for key, order in self.orders.items()},
         }
 
     @classmethod
@@ -131,6 +169,7 @@ class WorldState:
             seed=int(data.get("seed", 42)),
             policy=str(data.get("policy", "fcfs")),
             next_task_seq=int(data.get("next_task_seq", 1)),
+            next_order_seq=int(data.get("next_order_seq", 1)),
             last_event_id=int(data.get("last_event_id", 0)),
         )
         for key, raw in data.get("tasks", {}).items():
@@ -139,6 +178,9 @@ class WorldState:
             state.workers[key] = Worker(**raw)
         for key, raw in data.get("stations", {}).items():
             state.stations[key] = Station(**raw)
+        for key, raw in data.get("orders", {}).items():
+            state.orders[key] = Order(**raw)
+        return state
         return state
 
 

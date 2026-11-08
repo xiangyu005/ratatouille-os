@@ -221,6 +221,18 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "state_version": engine.state.version,
         }
 
+    @app.get("/api/v1/orders")
+    def orders(request: Request) -> dict[str, Any]:
+        return {
+            "request_id": _request_id(request),
+            "orders": [
+                order.to_dict()
+                for order in sorted(engine.state.orders.values(), key=lambda o: o.id)
+            ],
+            "sim_time": engine.state.sim_time,
+            "state_version": engine.state.version,
+        }
+
     @app.post("/api/v1/commands", response_model=CommandResponse, status_code=202)
     async def command(request: Request, body: CommandRequest) -> dict[str, Any]:
         cmd = Command(

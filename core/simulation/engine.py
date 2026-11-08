@@ -12,9 +12,12 @@ from core.domain.errors import DomainError
 from core.domain.models import (
     Command,
     DomainEvent,
+    Order,
+    OrderStatus,
     Station,
     StationStatus,
     Task,
+    TaskStage,
     TaskStatus,
     Worker,
     WorkerStatus,
@@ -180,6 +183,108 @@ def _handle_enqueue_task(
     ]
 
 
+DISH_RECIPES: dict[str, list[dict[str, Any]]] = {
+    "番茄湯": [
+        {"stage": TaskStage.FETCH, "name": "番茄湯-取料", "burst_seconds": 3, "preferred_station_id": "S-1"},
+        {"stage": TaskStage.COOK, "name": "番茄湯-烹調", "burst_seconds": 6, "preferred_station_id": "S-2"},
+        {"stage": TaskStage.SERVE, "name": "番茄湯-送餐", "burst_seconds": 2, "preferred_station_id": None},
+    ],
+    "炒飯": [
+        {"stage": TaskStage.FETCH, "name": "炒飯-取料", "burst_seconds": 2, "preferred_station_id": "S-1"},
+        {"stage": TaskStage.COOK, "name": "炒飯-烹調", "burst_seconds": 8, "preferred_station_id": "S-2"},
+        {"stage": TaskStage.SERVE, "name": "炒飯-送餐", "burst_seconds": 2, "preferred_station_id": None},
+    ],
+}
+
+
+def _handle_create_order(
+    state: WorldState, args: dict[str, Any], command: Command
+) -> list[DomainEvent]:
+    dish_name = str(args.get("dish_name") or "").strip()
+    if not dish_name:
+        raise DomainError(
+            "MISSING_ARGUMENT", "Missing required argument: dish_name", status_code=422
+        )
+    priority = int(args.get("priority", 0))
+
+    stages_config = args.get("stages")
+    if not stages_config:
+        stages_config = DISH_RECIPES.get(
+            dish_name,
+            [
+                {"stage": TaskStage.FETCH, "name": f"{dish_name}-取料", "burst_seconds": 3, "preferred_station_id": "S-1"},
+                {"stage": TaskStage.COOK, "name": f"{dish_name}-烹調", "burst_seconds": 5, "preferred_station_id": "S-2"},
+                {"stage": TaskStage.SERVE, "name": f"{dish_name}-送餐", "burst_seconds": 2, "preferred_station_id": None},
+            ],
+        )
+
+    order_id = f"O-{state.next_order_seq:04d}"
+    state.next_order_seq += 1
+
+    task_ids: list[str] = []
+    prev_task_id: str | None = None
+    first_task: Task | None = None
+
+    for idx, stage_info in enumerate(stages_config):
+        burst = int(stage_info.get("burst_seconds", 3))
+        stage_name = str(stage_info.get("stage", TaskStage.FETCH))
+        name = str(stage_info.get("name") or f"{dish_name}-{stage_name}")
+        pref_station = stage_info.get("preferred_station_id")
+
+        task_id = f"T-{state.next_task_seq:04d}"
+        state.next_task_seq += 1
+        task_ids.append(task_id)
+
+        is_first = (idx == 0)
+        task = Task(
+            id=task_id,
+            name=name,
+            burst_seconds=burst,
+            priority=priority,
+            status=TaskStatus.QUEUED if is_first else TaskStatus.WAITING,
+            enqueued_at=state.sim_time if is_first else 0,
+            order_id=order_id,
+            stage=stage_name,
+            prerequisite_task_id=prev_task_id,
+            preferred_station_id=pref_station,
+        )
+        state.tasks[task_id] = task
+        if is_first:
+            first_task = task
+        prev_task_id = task_id
+
+    order = Order(
+        id=order_id,
+        dish_name=dish_name,
+        status=OrderStatus.IN_PROGRESS,
+        task_ids=task_ids,
+        created_at=state.sim_time,
+        priority=priority,
+    )
+    state.orders[order_id] = order
+
+    events: list[DomainEvent] = [
+        _event(
+            state,
+            "ORDER_CREATED",
+            {"order": order.to_dict()},
+            command,
+            correlation_id=order_id,
+        )
+    ]
+    if first_task:
+        events.append(
+            _event(
+                state,
+                "TASK_ENQUEUED",
+                {"task": first_task.to_dict()},
+                command,
+                correlation_id=order_id,
+            )
+        )
+    return events
+
+
 def _handle_assign_task(
     state: WorldState, args: dict[str, Any], command: Command
 ) -> list[DomainEvent]:
@@ -263,10 +368,19 @@ def _handle_schedule_queue(
     for task_id in plan.order:
         if not idle_workers or not free_stations:
             break
-        worker = idle_workers.pop(0)
-        station = free_stations.pop(0)
         task = state.tasks[task_id]
-        assign_events.extend(_assign(state, task, worker, station, command))
+        chosen_station: Station | None = None
+        if task.preferred_station_id:
+            for s in free_stations:
+                if s.id == task.preferred_station_id:
+                    chosen_station = s
+                    break
+        if chosen_station is None:
+            chosen_station = free_stations[0]
+
+        free_stations.remove(chosen_station)
+        worker = idle_workers.pop(0)
+        assign_events.extend(_assign(state, task, worker, chosen_station, command))
         assigned.append(task_id)
 
     summary = _event(
@@ -283,7 +397,7 @@ def _handle_schedule_queue(
     return [summary, *assign_events]
 
 
-def _complete_task(state: WorldState, task: Task, command: Command) -> DomainEvent:
+def _complete_task(state: WorldState, task: Task, command: Command) -> list[DomainEvent]:
     task.status = TaskStatus.DONE
     task.remaining_seconds = 0
     task.finished_at = state.sim_time
@@ -295,18 +409,74 @@ def _complete_task(state: WorldState, task: Task, command: Command) -> DomainEve
         station.status = StationStatus.FREE
         station.task_id = None
 
-    return _event(
-        state,
-        "TASK_COMPLETED",
-        {
-            "task_id": task.id,
-            "worker_id": task.worker_id,
-            "station_id": task.station_id,
-            "finished_at": state.sim_time,
-        },
-        command,
-        correlation_id=task.id,
-    )
+    events = [
+        _event(
+            state,
+            "TASK_COMPLETED",
+            {
+                "task_id": task.id,
+                "worker_id": task.worker_id,
+                "station_id": task.station_id,
+                "finished_at": state.sim_time,
+            },
+            command,
+            correlation_id=task.order_id or task.id,
+        )
+    ]
+
+    # Check for dependent tasks waiting on this completed task
+    for next_task in state.tasks.values():
+        if next_task.prerequisite_task_id == task.id and next_task.status == TaskStatus.WAITING:
+            next_task.status = TaskStatus.QUEUED
+            next_task.enqueued_at = state.sim_time
+            events.append(
+                _event(
+                    state,
+                    "TASK_UNBLOCKED",
+                    {
+                        "task_id": next_task.id,
+                        "prerequisite_task_id": task.id,
+                        "order_id": next_task.order_id,
+                        "stage": next_task.stage,
+                    },
+                    command,
+                    correlation_id=next_task.order_id or next_task.id,
+                )
+            )
+            events.append(
+                _event(
+                    state,
+                    "TASK_ENQUEUED",
+                    {"task": next_task.to_dict()},
+                    command,
+                    correlation_id=next_task.order_id or next_task.id,
+                )
+            )
+
+    # If this task belongs to an order, check if all tasks of the order are finished
+    if task.order_id and (order := state.orders.get(task.order_id)):
+        order_tasks = [state.tasks[tid] for tid in order.task_ids if tid in state.tasks]
+        if order_tasks and all(t.status == TaskStatus.DONE for t in order_tasks):
+            order.status = OrderStatus.COMPLETED
+            order.completed_at = state.sim_time
+            duration = (order.completed_at - order.created_at) if order.completed_at is not None else 0
+            events.append(
+                _event(
+                    state,
+                    "ORDER_COMPLETED",
+                    {
+                        "order_id": order.id,
+                        "dish_name": order.dish_name,
+                        "created_at": order.created_at,
+                        "completed_at": order.completed_at,
+                        "duration_seconds": duration,
+                    },
+                    command,
+                    correlation_id=order.id,
+                )
+            )
+
+    return events
 
 
 def _handle_advance_time(
@@ -339,7 +509,7 @@ def _handle_advance_time(
             key=lambda task: task.id,
         )
         for task in due:
-            events.append(_complete_task(state, task, command))
+            events.extend(_complete_task(state, task, command))
 
     state.sim_time = target
     events.append(
@@ -370,6 +540,7 @@ def _handle_set_policy(
 
 _HANDLERS = {
     "ENQUEUE_TASK": _handle_enqueue_task,
+    "CREATE_ORDER": _handle_create_order,
     "ASSIGN_TASK": _handle_assign_task,
     "SCHEDULE_QUEUE": _handle_schedule_queue,
     "ADVANCE_TIME": _handle_advance_time,
